@@ -55,7 +55,6 @@ _CLINIC_HINTS: dict[str, list[str]] = {
     "rama":       ["rama", "rssb", "member_no", "member", "beneficiary_id", "id", "number", "numero", "no"],
     "name":       ["patient_name", "name", "nom", "full_name", "beneficiary", "beneficiaire"],
     "visit_date": ["visit_date", "consultation_date", "date_visit", "date", "visite"],
-    "doctor":     ["doctor", "medecin", "physician", "dr_name", "prescriber", "prescripteur"],
 }
 
 _PHARMACY_HINTS: dict[str, list[str]] = {
@@ -64,6 +63,7 @@ _PHARMACY_HINTS: dict[str, list[str]] = {
     "dispensing_date": ["dispensing_date", "dispense_date", "date_dispensed", "date", "delivery_date"],
     "drug":            ["drug_name", "drug", "medication", "medicament", "medicine", "item", "product", "article", "denomination"],
     "pharmacy_name":   ["pharmacy_name", "pharmacy", "pharmacie", "provider", "facility"],
+    "doctor":          ["doctor", "medecin", "physician", "dr_name", "prescriber", "prescripteur", "prescribed_by"],
 }
 
 
@@ -116,11 +116,6 @@ def clean_clinic(df: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
     out["visit_date"] = pd.to_datetime(
         df[mapping["visit_date"]], errors="coerce", dayfirst=True
     )
-    out["doctor"] = (
-        _clean_str(df[mapping["doctor"]])
-        if mapping.get("doctor")
-        else ""
-    )
     return out.dropna(subset=["visit_date"]).reset_index(drop=True)
 
 
@@ -139,6 +134,11 @@ def clean_pharmacy(df: pd.DataFrame, mapping: dict[str, str]) -> pd.DataFrame:
     out["pharmacy_name"] = (
         _clean_str(df[mapping["pharmacy_name"]])
         if mapping.get("pharmacy_name")
+        else ""
+    )
+    out["doctor"] = (
+        _clean_str(df[mapping["doctor"]])
+        if mapping.get("doctor")
         else ""
     )
     return out.dropna(subset=["dispensing_date"]).reset_index(drop=True)
@@ -166,6 +166,7 @@ def normalise_pharmacy(df: pd.DataFrame) -> pd.DataFrame:
             name_clean    = ("name_clean",    "first"),
             pharmacy_name = ("pharmacy_name", "first"),
             drugs         = ("drug",          _join_drugs),
+            doctor        = ("doctor",        "first"),
         )
     )
     return result.reset_index(drop=True)
@@ -209,6 +210,9 @@ def run_analysis(
         score       = 0
         flags: list[str] = []
 
+        # Doctor comes from the pharmacy file (available regardless of clinic match)
+        doctor = row.get("doctor", "")
+
         # Defaults (set when NOT_FOUND)
         visit_found = "NOT_FOUND"
         clinic_name = ""
@@ -217,7 +221,6 @@ def run_analysis(
         date_diff   = None
         date_flag   = ""
         clinic_dt   = None
-        doctor      = ""
 
         if best_visit is None:
             # ── Fraud signal 1: Ghost patient ─────────────────────────
@@ -227,7 +230,6 @@ def run_analysis(
             visit_found  = "FOUND"
             clinic_dt    = best_visit["visit_date"]
             clinic_name  = best_visit["name_clean"]
-            doctor       = best_visit.get("doctor", "")
 
             # ── Name fuzzy match (token_sort handles transposed names) ─
             name_sim   = rfuzz.token_sort_ratio(p_name, clinic_name)
@@ -280,9 +282,10 @@ def run_analysis(
 # Edges:  one per Doctor–Patient pair, labelled with drugs prescribed
 # ──────────────────────────────────────────────
 def build_network_graph(results: pd.DataFrame) -> go.Figure:
+    # Doctor comes from the pharmacy file so all records with a doctor are included,
+    # regardless of whether they matched a clinic visit.
     df_g = results[
-        (results["Visit Found"] == "FOUND") &
-        (results["Doctor"].astype(str).str.strip() != "")
+        results["Doctor"].astype(str).str.strip() != ""
     ].copy()
 
     _empty_layout = dict(
@@ -534,7 +537,7 @@ if clinic_file and pharmacy_file:
         clinic_map = _mapping_ui(
             "clinic", c_cols,
             required=[("rama", "RAMA number"), ("name", "Patient name"), ("visit_date", "Visit date")],
-            optional=[("doctor", "Doctor name")],
+            optional=[],
             hints=_CLINIC_HINTS,
         )
     with cm2:
@@ -542,7 +545,7 @@ if clinic_file and pharmacy_file:
         pharmacy_map = _mapping_ui(
             "pharmacy", p_cols,
             required=[("rama", "RAMA number"), ("name", "Patient name"), ("dispensing_date", "Dispensing date")],
-            optional=[("drug", "Drug name"), ("pharmacy_name", "Pharmacy name")],
+            optional=[("drug", "Drug name"), ("pharmacy_name", "Pharmacy name"), ("doctor", "Doctor name")],
             hints=_PHARMACY_HINTS,
         )
 
@@ -748,16 +751,15 @@ if clinic_file and pharmacy_file:
                 "**Doctor–Patient Prescription Network**\n\n"
                 "🔷 Doctor nodes (diamond, blue) · Patient nodes (circle, coloured by risk level) · "
                 "Edges labelled with drugs prescribed.\n\n"
-                "Requires the **doctor** optional column to be mapped in the clinic file."
+                "Requires the **doctor** optional column to be mapped in the pharmacy file."
             )
             fig_net = build_network_graph(results)
             st.plotly_chart(fig_net, use_container_width=True)
 
-            # Companion table: doctor → patients + drugs
+            # Companion table: doctor → patients + drugs (all records, including ghost claims)
             doc_data = results[
-                (results["Visit Found"] == "FOUND") &
-                (results["Doctor"].astype(str).str.strip() != "")
-            ][["Doctor", "RAMA", "Pharmacy Name", "Drugs Dispensed", "Risk Level"]].copy()
+                results["Doctor"].astype(str).str.strip() != ""
+            ][["Doctor", "RAMA", "Pharmacy Name", "Clinic Name", "Drugs Dispensed", "Visit Found", "Risk Level"]].copy()
 
             if not doc_data.empty:
                 with st.expander("Doctor prescription table"):
