@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patient-crosscheck-singlefile"
+version = "0.3.0"
+description = "Single-file Streamlit app for pharmacy and clinic visit cross-checking"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "openpyxl>=3.1",
+  "pytest>=8.0",
+  "streamlit>=1.35"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
