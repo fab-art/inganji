@@ -1,2 +1,6 @@
-openpyxl>=3.1
-streamlit>=1.35
+streamlit
+pandas
+openpyxl
+rapidfuzz
+networkx
+plotly
