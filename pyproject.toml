@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patient-crosscheck"
+version = "0.2.0"
+description = "Patient cross-checking system for pharmacy and clinic visit validation"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "openpyxl>=3.1",
+  "streamlit>=1.35"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0"
+]
+
+[project.scripts]
+patient-crosscheck = "patient_crosscheck.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
